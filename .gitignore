@@ -2,3 +2,5 @@
 .cproject
 .direnv
 build
+compile_commands.json
+.ccls-cache

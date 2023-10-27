@@ -19,6 +19,10 @@ endif()
 
 # always export compile commands database
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+file(CREATE_LINK 
+    ${CMAKE_CURRENT_BINARY_DIR}/compile_commands.json 
+    ${CMAKE_CURRENT_SOURCE_DIR}/compile_commands.json
+    SYMBOLIC)
 
 #####################################################################
 
@@ -50,7 +54,6 @@ message("  GLUT found              : ${GLUT_FOUND}")
 message("===================================================")
 
 #####################################################################
-
 
 add_executable(${PROJECT_NAME} 
     main.cpp
