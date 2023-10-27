@@ -9,57 +9,52 @@
   let
     system = "x86_64-linux";
     pkgs = import nixpkgs { inherit system; config.allowUnfree = true; };
+    buildInputs = with pkgs; [
+        cudaPackages_12_0.cudatoolkit
+        gnumake 
+        linuxPackages.nvidia_x11
+        
+        freeglut
+        glew
+        libGL
+        libGLU
+        libglvnd
+
+        clang-tools
+        cmake
+        gcc11
+    ];
   in
   {
     packages.${system}.default = pkgs.stdenv.mkDerivation {
         name = "cuda-graphics";
         src = ./.;
-        buildInputs = with pkgs; [
-          cudatoolkit 
-          gnumake 
-          linuxPackages.nvidia_x11
-          
-          freeglut
-          glew
-          libGL
-          libGLU
-          libglvnd
-        ];
+        inherit buildInputs;
+
+        configurePhase = ''
+          mkdir -p target 
+          cmake -S . -B target
+        '';
 
         preBuild = ''
-          export CUDA_PATH="${pkgs.cudatoolkit}"
+          export CUDA_PATH="${pkgs.cudaPackages_12_0.cudatoolkit}"
         '';
 
         buildPhase = ''
-          make
+          cmake --build target 
         '';
 
         installPhase = ''
           mkdir -p $out/bin
-          cp cuda-graphics $out/bin/
+          mv target/cuda-graphics $out/bin
         '';
     };    
 
     devShells.${system}.default = pkgs.mkShell {
-      buildInputs = with pkgs; [
-          cudaPackages_12_0.cudatoolkit
-          gnumake 
-          linuxPackages.nvidia_x11
-          
-          freeglut
-          glew
-          libGL
-          libGLU
-          libglvnd
-
-          clang-tools
-          cmake
-          gcc11
-      ];
-      shellHook = ''
-        export IMAGE=nvidia/cuda:12.2.0-devel-ubuntu20.04
-        export CUDA_PATH=${pkgs.cudaPackages_12_0.cudatoolkit}
-      '';
+        inherit buildInputs;
+        shellHook = ''
+          export CUDA_PATH="${pkgs.cudaPackages_12_0.cudatoolkit}"
+        '';
     };
   };
 }
