@@ -6,13 +6,15 @@
  * @version 2010-03
  */
 
+#include <GL/glew.h> // has to be included before freeglut.h
+
+#include <GL/freeglut.h> // includes gl.h, glext.h, glu.h
 #include <cstdlib>
 #include <ctime>
-#include <iostream>
-#include <GL/glew.h>      // has to be included before freeglut.h
-#include <GL/freeglut.h>  // includes gl.h, glext.h, glu.h
-#include <cuda_runtime.h>
 #include <cuda_gl_interop.h>
+#include <cuda_runtime.h>
+#include <iostream>
+
 #include "graphics.h"
 #include "kernel.h"
 
@@ -23,7 +25,7 @@ using namespace std;
  */
 
 // buffer offset type conversion (cf. OpenGL Programming Guide, 5th ed., p. 87)
-#define BUFFER_OFFSET(bytes) ((GLubyte*) NULL + (bytes))
+#define BUFFER_OFFSET(bytes) ((GLubyte *)NULL + (bytes))
 
 /*
  * global variables
@@ -31,13 +33,13 @@ using namespace std;
 
 // model parameters
 const GLsizei nParticles = 2048;
-const float maxPosition = 10.0f;  // bounding box size in each dimension
-const float mass = 1.0f;          // mass of each particle
+const float maxPosition = 10.0f; // bounding box size in each dimension
+const float mass = 1.0f;         // mass of each particle
 
 // model variables
 GLuint positionVBO = 0;
 cudaGraphicsRes_pt positionCudaVBO = 0;
-float* velocityCudaPtr = 0;
+float *velocityCudaPtr = 0;
 
 // rendering parameters
 const GLfloat pointSize = 3.0f;
@@ -47,8 +49,9 @@ const GLfloat pointSize = 3.0f;
  */
 
 // initialize positions as OpenGL VBO and velocities as CUDA device meory array
-void initModel(GLuint& vbo, cudaGraphicsRes_pt& positionCudaVBO, float_pt& velocityCudaPtr,
-    GLsizei nParticles, float maxPosition);
+void initModel(GLuint &vbo, cudaGraphicsRes_pt &positionCudaVBO,
+               float_pt &velocityCudaPtr, GLsizei nParticles,
+               float maxPosition);
 
 // GLUT display callback function
 void display();
@@ -58,13 +61,14 @@ void display();
  */
 
 // main function
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
 
   // initialize everything
   initGLUT(&argc, argv);
   initGLEW();
   initCUDA();
-  initModel(positionVBO, positionCudaVBO, velocityCudaPtr, nParticles, maxPosition);
+  initModel(positionVBO, positionCudaVBO, velocityCudaPtr, nParticles,
+            maxPosition);
 
   // register GLUT display callback function
   glutDisplayFunc(display);
@@ -75,19 +79,22 @@ int main(int argc, char** argv) {
   return 0;
 }
 
-void initModel(GLuint& vbo, cudaGraphicsRes_pt& positionCudaVBO, float_pt& velocityCudaPtr,
-    GLsizei nParticles, float maxPosition) {
+void initModel(GLuint &vbo, cudaGraphicsRes_pt &positionCudaVBO,
+               float_pt &velocityCudaPtr, GLsizei nParticles,
+               float maxPosition) {
 
   // initialize particle positions and velocities
   size_t memSize = nParticles * 4 * sizeof(GLfloat);
-  float* positions = new float[memSize];
-  float* velocities = new float[memSize];
+  float *positions = new float[memSize];
+  float *velocities = new float[memSize];
 
   srand(time(NULL));
   for (int i = 0; i < nParticles; i++) {
     for (int j = 0; j < 3; j++) {
-      positions[4 * i + j] = maxPosition * rand() / static_cast<float>(RAND_MAX);
-      velocities[4 * i + j] = 0.5 * maxPosition * (rand() / static_cast<float>(RAND_MAX) - 0.5f);
+      positions[4 * i + j] =
+          maxPosition * rand() / static_cast<float>(RAND_MAX);
+      velocities[4 * i + j] =
+          0.5 * maxPosition * (rand() / static_cast<float>(RAND_MAX) - 0.5f);
     }
     positions[4 * i + 3] = mass;  // use w component for particle mass
     velocities[4 * i + 3] = 0.0f; // unused
@@ -131,11 +138,11 @@ void display() {
   glRotatef(rotateY, 0.0, 1.0, 0.0);
 
   // set light
-  const GLfloat lightPosition[] = { 1.0f, 1.0f, 1.0f, 0.0f };
+  const GLfloat lightPosition[] = {1.0f, 1.0f, 1.0f, 0.0f};
   glLightfv(GL_LIGHT0, GL_POSITION, lightPosition);
 
   // render teapot (test only)
-  //glutSolidTeapot(1);
+  // glutSolidTeapot(1);
 
   // center particle box
   GLfloat centerTrans = -0.5f * maxPosition;
