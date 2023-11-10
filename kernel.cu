@@ -13,23 +13,14 @@
 
 using namespace std;
 
-struct ModelParams {
-  GLsizei nParticles;
-  float maxPosition;
-  float mass;
-  float g;
-  float epsSqr;
-};
-
-const ModelParams params{2048, 10.0f, 1.0f, 0.001f, 0.0001f};
-
 /*
  * global variables
  */
 
 constexpr float EPSILON{1e-5};
 constexpr float G{6.6743e-11};
-const size_t nBlocks = 16;
+constexpr size_t gridSize = 4;
+constexpr size_t blockSize = 1024;
 
 /*
  * local function prototypes
@@ -61,12 +52,13 @@ __device__ void applyPeriodicBoundaryCondition(float4 *position,
 __device__ void computeBodyBodyInteractions(float3 *acceleration,
                                             float4 const *position,
                                             float4 const *positions,
-                                            size_t nBodies);
+                                            size_t nBodies, float maxPosition);
 
 // compute the gravitation
 __device__ void addBodyBodyGravitation(float3 *acceleration,
                                        float4 const *position,
-                                       float4 const *otherPosition);
+                                       float4 const *otherPosition,
+                                       float maxPosition);
 
 __device__ void stepIntegrationLeapfrog(float4 *position, float4 *velocity,
                                         float3 *acceleration, float timeDiff);
@@ -125,6 +117,7 @@ void launchCudaKernel(cudaGraphicsRes_pt &positionCudaVBO,
   static float timeOld = clock() / static_cast<float>(CLOCKS_PER_SEC);
   size_t nBytes;
   float4 *positions;
+
   cudaGraphicsMapResources(1, &positionCudaVBO, 0);
   checkCUDAError("launchCudaKernel()");
   cudaGraphicsResourceGetMappedPointer((void **)&positions, &nBytes,
@@ -132,10 +125,10 @@ void launchCudaKernel(cudaGraphicsRes_pt &positionCudaVBO,
   checkCUDAError("launchCudaKernel()");
 
   float time = clock() / static_cast<float>(CLOCKS_PER_SEC);
-  // setPositionsKernel<<<nBlocks, nParticles / nBlocks>>>(positions, time,
+  // setPositionsKernel<<<gridSize, nParticles / nBlocks>>>(positions, time,
   // maxPosition);
-  updatePositionsKernel<<<nBlocks, nParticles / nBlocks>>>(
-      positions, velocityCudaPtr, time - timeOld, maxPosition);
+  updatePositionsKernel<<<gridSize, blockSize>>>(positions, velocityCudaPtr,
+                                                 time - timeOld, maxPosition);
   checkCUDAError("launchCudaKernel()");
   timeOld = time;
   cudaGraphicsUnmapResources(1, &positionCudaVBO, 0);
@@ -164,22 +157,39 @@ __global__ void setPositionsKernel(float4 *positions, float time,
 // kernel for N-body dynamics
 __global__ void updatePositionsKernel(float4 *positions, float *velocityPtr,
                                       float timeDiff, float maxPosition) {
-  unsigned int idx{blockIdx.x * blockDim.x + threadIdx.x};
-  unsigned int nParticles = gridDim.x * blockDim.x;
-  float4 position = positions[idx];
-  float4 *velocities{(float4 *)velocityPtr};
+
+  __shared__ float4 sharedPositions[blockSize];
+
+  unsigned int globalIdx{blockIdx.x * blockDim.x + threadIdx.x};
   float3 acceleration{0.0f};
 
-  computeBodyBodyInteractions(&acceleration, &position, positions, nParticles);
+  float4 currentPosition = positions[globalIdx];
+  float4 currentVelocity = ((float4 *)velocityPtr)[globalIdx];
 
-  // stepIntegration(&(positions[idx]), &(velocities[idx]), timeDiff);
-  stepIntegrationLeapfrog(&(positions[idx]), &(velocities[idx]), &acceleration,
+  for (size_t i{0}; i < gridSize; i++) {
+    size_t idx = blockDim.x * i + threadIdx.x;
+    sharedPositions[threadIdx.x] = positions[idx];
+
+    __syncthreads();
+
+    computeBodyBodyInteractions(&acceleration, &currentPosition,
+                                sharedPositions, blockSize, maxPosition);
+
+    __syncthreads();
+  }
+
+  // stepIntegration(&(positions[globalIdx]), &(velocities[globalIdx]),
+  // timeDiff);
+  stepIntegrationLeapfrog(&currentPosition, &currentVelocity, &acceleration,
                           timeDiff);
 
-  // applyReflectiveBoundaryConditions(&(positions[idx]), &(velocities[idx]),
-  // maxPosition);
-  applyPeriodicBoundaryCondition(&(positions[idx]), &(velocities[idx]),
+  // applyReflectiveBoundaryConditions(&(positions[globalIdx]),
+  // &(velocities[globalIdx]), maxPosition);
+  applyPeriodicBoundaryCondition(&currentPosition, &currentVelocity,
                                  maxPosition);
+
+  positions[globalIdx] = currentPosition;
+  ((float4 *)velocityPtr)[globalIdx] = currentVelocity;
 }
 
 __device__ void stepIntegration(float4 *position, float4 *velocity,
@@ -236,21 +246,35 @@ __device__ void applyPeriodicBoundaryCondition(float4 *position,
 __device__ void computeBodyBodyInteractions(float3 *acceleration,
                                             float4 const *position,
                                             float4 const *positions,
-                                            size_t nBodies) {
+                                            size_t nBodies, float maxPosition) {
   for (int i = 0; i < nBodies; i++) {
     float4 otherPosition = positions[i];
-    addBodyBodyGravitation(acceleration, position, &otherPosition);
+    addBodyBodyGravitation(acceleration, position, &otherPosition, maxPosition);
   }
 }
 
 __device__ void addBodyBodyGravitation(float3 *acceleration,
                                        float4 const *position,
-                                       float4 const *otherPosition) {
+                                       float4 const *otherPosition,
+                                       float maxPosition) {
   float3 direction = {
       otherPosition->x - position->x,
       otherPosition->y - position->y,
       otherPosition->z - position->z,
   };
+
+  auto halfMax = maxPosition * 0.5f;
+
+  direction.x = direction.x > halfMax    ? direction.x - maxPosition
+                : direction.x < -halfMax ? direction.x + maxPosition
+                                         : direction.x;
+  direction.y = direction.y > halfMax    ? direction.y - maxPosition
+                : direction.y < -halfMax ? direction.y + maxPosition
+                                         : direction.y;
+  direction.z = direction.z > halfMax    ? direction.z - maxPosition
+                : direction.z < -halfMax ? direction.z + maxPosition
+                                         : direction.z;
+
   float distSqrWEps = direction.x * direction.x + direction.y * direction.y +
                       direction.z * direction.z + EPSILON * EPSILON;
   float factor =

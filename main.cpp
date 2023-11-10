@@ -32,7 +32,7 @@ using namespace std;
  */
 
 // model parameters
-const GLsizei nParticles = 2048;
+const GLsizei nParticles = 4096;
 const float maxPosition = 10.0f; // bounding box size in each dimension
 const float mass = 1.0f;         // mass of each particle
 
