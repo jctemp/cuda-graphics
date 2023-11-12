@@ -60,7 +60,8 @@ add_executable(${PROJECT_NAME}
     kernel.cu
     kernel.h
     graphics.cpp
-    graphics.h)
+    graphics.h
+    global.h)
 set_target_properties(${PROJECT_NAME} PROPERTIES 
     CUDA_SEPARABLE_COMPILATION ON
     CUDA_ARCHITECTURES OFF)

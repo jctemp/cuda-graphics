@@ -5,6 +5,7 @@
  *      Author: ahlers
  */
 
+#include "global.h"
 #include "kernel.h"
 #include <ctime>
 #include <cuda_gl_interop.h>
@@ -12,20 +13,6 @@
 #include <iostream>
 
 using namespace std;
-
-/*
- * global variables
- */
-
-constexpr float EPSILON{1e-5};
-constexpr float EPSILON_SQR{EPSILON * EPSILON};
-constexpr float SOFTENING{1e-5};
-constexpr float SOFTENING_SQR{SOFTENING * SOFTENING};
-constexpr float SIGMA{1e-5};
-constexpr float SIGMA_POW_SIX{SIGMA * SIGMA * SIGMA * SIGMA * SIGMA * SIGMA};
-constexpr float G{6.6743e-11};
-constexpr size_t gridSize = 4;
-constexpr size_t blockSize = 1024;
 
 /*
  * local function prototypes
