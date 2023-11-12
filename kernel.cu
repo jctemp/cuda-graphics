@@ -18,6 +18,11 @@ using namespace std;
  */
 
 constexpr float EPSILON{1e-5};
+constexpr float EPSILON_SQR{EPSILON * EPSILON};
+constexpr float SOFTENING{1e-5};
+constexpr float SOFTENING_SQR{SOFTENING * SOFTENING};
+constexpr float SIGMA{1e-5};
+constexpr float SIGMA_POW_SIX{SIGMA * SIGMA * SIGMA * SIGMA * SIGMA * SIGMA};
 constexpr float G{6.6743e-11};
 constexpr size_t gridSize = 4;
 constexpr size_t blockSize = 1024;
@@ -60,6 +65,12 @@ __device__ void addBodyBodyGravitation(float3 *acceleration,
                                        float4 const *otherPosition,
                                        float maxPosition);
 
+__device__ void addVanDerWaalsForces(float3 *acceleration,
+                                     float4 const *position,
+                                     float4 const *otherPosition,
+                                     float maxPosition);
+
+// euler integration
 __device__ void stepIntegrationLeapfrog(float4 *position, float4 *velocity,
                                         float3 *acceleration, float timeDiff);
 
@@ -249,7 +260,9 @@ __device__ void computeBodyBodyInteractions(float3 *acceleration,
                                             size_t nBodies, float maxPosition) {
   for (int i = 0; i < nBodies; i++) {
     float4 otherPosition = positions[i];
-    addBodyBodyGravitation(acceleration, position, &otherPosition, maxPosition);
+    // addBodyBodyGravitation(acceleration, position, &otherPosition,
+    // maxPosition);
+    addVanDerWaalsForces(acceleration, position, &otherPosition, maxPosition);
   }
 }
 
@@ -276,9 +289,44 @@ __device__ void addBodyBodyGravitation(float3 *acceleration,
                                          : direction.z;
 
   float distSqrWEps = direction.x * direction.x + direction.y * direction.y +
-                      direction.z * direction.z + EPSILON * EPSILON;
+                      direction.z * direction.z + EPSILON_SQR;
   float factor =
       G * otherPosition->w / sqrtf(distSqrWEps * distSqrWEps * distSqrWEps);
+  acceleration->x += factor * direction.x;
+  acceleration->y += factor * direction.y;
+  acceleration->z += factor * direction.z;
+}
+
+__device__ void addVanDerWaalsForces(float3 *acceleration,
+                                     float4 const *position,
+                                     float4 const *otherPosition,
+                                     float maxPosition) {
+
+  float3 direction = {
+      otherPosition->x - position->x,
+      otherPosition->y - position->y,
+      otherPosition->z - position->z,
+  };
+
+  auto halfMax = maxPosition * 0.5f;
+
+  direction.x = direction.x > halfMax    ? direction.x - maxPosition
+                : direction.x < -halfMax ? direction.x + maxPosition
+                                         : direction.x;
+  direction.y = direction.y > halfMax    ? direction.y - maxPosition
+                : direction.y < -halfMax ? direction.y + maxPosition
+                                         : direction.y;
+  direction.z = direction.z > halfMax    ? direction.z - maxPosition
+                : direction.z < -halfMax ? direction.z + maxPosition
+                                         : direction.z;
+
+  float distSqr = direction.x * direction.x + direction.y * direction.y +
+                  direction.z * direction.z + SOFTENING_SQR;
+
+  auto sigmaDistPow6 = SIGMA_POW_SIX / (distSqr * distSqr * distSqr);
+  auto factor = SIGMA_POW_SIX * (1.0f - 2.0f * SIGMA_POW_SIX) * 24.0f *
+                EPSILON / (distSqr * position->w);
+
   acceleration->x += factor * direction.x;
   acceleration->y += factor * direction.y;
   acceleration->z += factor * direction.z;
