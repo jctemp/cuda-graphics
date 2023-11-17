@@ -71,6 +71,16 @@
 
       devShells.${system}.default = pkgs.mkShell {
         inherit buildInputs;
+        packages = with pkgs; [
+          (python311.withPackages (pp: with pp; [
+            numpy
+            pandas
+            matplotlib
+            jupyter-core
+            jupyter
+            ipykernel
+          ]))
+        ];
         shellHook = checks.pre-commit-check.shellHook +
           ''
             export CUDA_PATH="${pkgs.cudatoolkit}"

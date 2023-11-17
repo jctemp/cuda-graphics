@@ -12,8 +12,8 @@
  * type definitions
  */
 
-typedef float* float_pt;
-typedef struct cudaGraphicsResource* cudaGraphicsRes_pt;
+typedef float *float_pt;
+typedef struct cudaGraphicsResource *cudaGraphicsRes_pt;
 
 /*
  * function prototypes
@@ -24,13 +24,14 @@ typedef struct cudaGraphicsResource* cudaGraphicsRes_pt;
 void initCUDA();
 
 // check for CUDA errors, exit in case of errors
-void checkCUDAError(const char* functionName);
+void checkCUDAError(const char *functionName);
 
 // print CUDA version and device information
 void printCUDAVersion();
 
 // launch N-body dynamics kernel
-void launchCudaKernel(cudaGraphicsRes_pt& positionCudaVBO, float_pt velocityCudaPtr,
-    size_t nParticles, float maxPosition);
+void launchCudaKernel(cudaGraphicsRes_pt &positionCudaVBO,
+                      float_pt velocityCudaPtr, float_pt temperatureCudaPtr,
+                      size_t nParticles, float maxPosition);
 
 #endif /* KERNEL_H_ */

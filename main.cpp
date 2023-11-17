@@ -36,6 +36,7 @@ using namespace std;
 GLuint positionVBO = 0;
 cudaGraphicsRes_pt positionCudaVBO = 0;
 float *velocityCudaPtr = 0;
+float *temperatureCudaPtr = 0;
 
 // rendering parameters
 const GLfloat pointSize = 3.0f;
@@ -46,8 +47,8 @@ const GLfloat pointSize = 3.0f;
 
 // initialize positions as OpenGL VBO and velocities as CUDA device meory array
 void initModel(GLuint &vbo, cudaGraphicsRes_pt &positionCudaVBO,
-               float_pt &velocityCudaPtr, GLsizei nParticles,
-               float maxPosition);
+               float_pt &velocityCudaPtr, float_pt &temperatureCudaPtr,
+               GLsizei nParticles, float maxPosition);
 
 // GLUT display callback function
 void display();
@@ -63,8 +64,8 @@ int main(int argc, char **argv) {
   initGLUT(&argc, argv);
   initGLEW();
   initCUDA();
-  initModel(positionVBO, positionCudaVBO, velocityCudaPtr, nParticles,
-            maxPosition);
+  initModel(positionVBO, positionCudaVBO, velocityCudaPtr, temperatureCudaPtr,
+            nParticles, maxPosition);
 
   // register GLUT display callback function
   glutDisplayFunc(display);
@@ -76,8 +77,8 @@ int main(int argc, char **argv) {
 }
 
 void initModel(GLuint &vbo, cudaGraphicsRes_pt &positionCudaVBO,
-               float_pt &velocityCudaPtr, GLsizei nParticles,
-               float maxPosition) {
+               float_pt &velocityCudaPtr, float_pt &temperatureCudaPtr,
+               GLsizei nParticles, float maxPosition) {
 
   // initialize particle positions and velocities
   size_t memSize = nParticles * 4 * sizeof(GLfloat);
@@ -109,18 +110,23 @@ void initModel(GLuint &vbo, cudaGraphicsRes_pt &positionCudaVBO,
   cudaMalloc(&velocityCudaPtr, memSize);
   cudaMemcpy(velocityCudaPtr, velocities, memSize, cudaMemcpyHostToDevice);
 
+  // create cool pointer
+  cudaMalloc(&temperatureCudaPtr, sizeof(float) * gridSize);
+
   delete[] velocities;
   velocities = 0;
   delete[] positions;
   positions = 0;
 
   checkGLError("initModel()");
+
+  printf("temperature,time\n");
 }
 
 void display() {
-
   // update simulation using CUDA
-  launchCudaKernel(positionCudaVBO, velocityCudaPtr, nParticles, maxPosition);
+  launchCudaKernel(positionCudaVBO, velocityCudaPtr, temperatureCudaPtr,
+                   nParticles, maxPosition);
 
   // render particles using OpenGL
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -196,7 +202,7 @@ void display() {
   nFrames++;
   float time = clock() / static_cast<float>(CLOCKS_PER_SEC);
   if (time - timeOld > 1.0f) {
-    cout << "FPS: " << nFrames / (time - timeOld) << endl;
+    // cout << "FPS: " << nFrames / (time - timeOld) << endl;
     nFrames = 0;
     timeOld = time;
   }

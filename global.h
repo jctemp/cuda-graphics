@@ -3,16 +3,17 @@
 
 #include <GL/freeglut.h> // includes gl.h, glext.h, glu.h
 
-constexpr float EPSILON{1e-5};
+constexpr float EPSILON{1e-5f};
 constexpr float EPSILON_SQR{EPSILON * EPSILON};
-constexpr float G{6.6743e-11};
+constexpr float G{6.6743e-11f};
+constexpr float KB{1.38e-23f};
 
-constexpr float SOFTENING{1e-5};
-constexpr float SOFTENING_SQR{SOFTENING * SOFTENING};
-constexpr float SIGMA{1e-5};
+constexpr float ENERGY{0.5};
+constexpr float SIGMA{0.45f};
+constexpr float SOFTENING_SQR{0.1f};
 constexpr float SIGMA_POW_SIX{SIGMA * SIGMA * SIGMA * SIGMA * SIGMA * SIGMA};
 
-constexpr size_t gridSize = 4;
+constexpr size_t gridSize = 2;
 constexpr size_t blockSize = 1024;
 
 // model parameters

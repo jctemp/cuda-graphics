@@ -10,6 +10,7 @@
 #include <ctime>
 #include <cuda_gl_interop.h>
 #include <cuda_runtime_api.h>
+#include <driver_types.h>
 #include <iostream>
 
 using namespace std;
@@ -52,6 +53,7 @@ __device__ void addBodyBodyGravitation(float3 *acceleration,
                                        float4 const *otherPosition,
                                        float maxPosition);
 
+// crazy gas close range interactions
 __device__ void addVanDerWaalsForces(float3 *acceleration,
                                      float4 const *position,
                                      float4 const *otherPosition,
@@ -60,6 +62,38 @@ __device__ void addVanDerWaalsForces(float3 *acceleration,
 // euler integration
 __device__ void stepIntegrationLeapfrog(float4 *position, float4 *velocity,
                                         float3 *acceleration, float timeDiff);
+
+__global__ void computeTemperature(float4 const *positions,
+                                   float const *velocityPtr,
+                                   float *temperaturePtr) {
+  size_t idx{blockIdx.x * blockDim.x + threadIdx.x};
+  size_t idxBlock = threadIdx.x;
+
+  __shared__ float partialSum[blockSize];
+
+  float4 velocity = ((float4 *)velocityPtr)[idx];
+  partialSum[idxBlock] =
+      positions[idx].w * (velocity.x * velocity.x + velocity.y * velocity.y +
+                          velocity.z * velocity.z);
+
+  for (int stride = blockSize >> 1; stride >= 32; stride >>= 1) {
+    __syncthreads();
+    if (idxBlock < stride) {
+      partialSum[idxBlock] += partialSum[idxBlock + stride];
+    }
+  }
+
+  __syncthreads();
+  if (idxBlock < 32) {
+    partialSum[idxBlock] += partialSum[idxBlock + 16];
+    partialSum[idxBlock] += partialSum[idxBlock + 8];
+    partialSum[idxBlock] += partialSum[idxBlock + 4];
+    partialSum[idxBlock] += partialSum[idxBlock + 2];
+    partialSum[idxBlock] += partialSum[idxBlock + 1];
+  }
+
+  temperaturePtr[blockIdx.x] = partialSum[0];
+}
 
 /*
  * global function definitions
@@ -110,8 +144,8 @@ void printCUDAVersion() {
 }
 
 void launchCudaKernel(cudaGraphicsRes_pt &positionCudaVBO,
-                      float *velocityCudaPtr, size_t nParticles,
-                      float maxPosition) {
+                      float *velocityCudaPtr, float *temperatureCudaPtr,
+                      size_t nParticles, float maxPosition) {
   static float timeOld = clock() / static_cast<float>(CLOCKS_PER_SEC);
   size_t nBytes;
   float4 *positions;
@@ -127,6 +161,20 @@ void launchCudaKernel(cudaGraphicsRes_pt &positionCudaVBO,
   // maxPosition);
   updatePositionsKernel<<<gridSize, blockSize>>>(positions, velocityCudaPtr,
                                                  time - timeOld, maxPosition);
+
+  float temperatures[gridSize];
+  computeTemperature<<<gridSize, blockSize>>>(positions, velocityCudaPtr,
+                                              temperatureCudaPtr);
+  checkCUDAError("computeTemperature()");
+  cudaMemcpy(temperatures, temperatureCudaPtr, sizeof(float) * gridSize,
+             cudaMemcpyDeviceToHost);
+  checkCUDAError("computeTemperature() memcpy");
+  float temperature = 0.0f;
+  for (int i = 0; i < gridSize; i++) {
+    temperature += temperatures[i];
+  }
+  printf("%f, %f\n", temperature, time);
+
   checkCUDAError("launchCudaKernel()");
   timeOld = time;
   cudaGraphicsUnmapResources(1, &positionCudaVBO, 0);
@@ -311,8 +359,8 @@ __device__ void addVanDerWaalsForces(float3 *acceleration,
                   direction.z * direction.z + SOFTENING_SQR;
 
   auto sigmaDistPow6 = SIGMA_POW_SIX / (distSqr * distSqr * distSqr);
-  auto factor = SIGMA_POW_SIX * (1.0f - 2.0f * SIGMA_POW_SIX) * 24.0f *
-                EPSILON / (distSqr * position->w);
+  auto factor = SIGMA_POW_SIX * (1.0f - 2.0f * SIGMA_POW_SIX) * 24.0f * ENERGY /
+                (distSqr * position->w);
 
   acceleration->x += factor * direction.x;
   acceleration->y += factor * direction.y;
