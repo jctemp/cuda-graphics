@@ -6,7 +6,8 @@
 constexpr float EPSILON{1e-5f};
 constexpr float EPSILON_SQR{EPSILON * EPSILON};
 constexpr float G{6.6743e-11f};
-constexpr float KB{1.38e-23f};
+constexpr float KB{1.0f};
+// constexpr float KB{1.38e-23f};
 
 constexpr float ENERGY{0.5};
 constexpr float SIGMA{0.45f};

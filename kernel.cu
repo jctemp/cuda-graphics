@@ -173,6 +173,7 @@ void launchCudaKernel(cudaGraphicsRes_pt &positionCudaVBO,
   for (int i = 0; i < gridSize; i++) {
     temperature += temperatures[i];
   }
+  temperature /= (3.0f * KB * nParticles);
   printf("%f, %f\n", temperature, time);
 
   checkCUDAError("launchCudaKernel()");
