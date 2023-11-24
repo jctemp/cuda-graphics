@@ -10,6 +10,7 @@
 #include <ctime>
 #include <cuda_gl_interop.h>
 #include <cuda_runtime_api.h>
+#include <device_atomic_functions.h>
 #include <driver_types.h>
 #include <iostream>
 
@@ -25,7 +26,8 @@ __global__ void setPositionsKernel(float4 *positions, float time,
 
 // kernel for N-body dynamics
 __global__ void updatePositionsKernel(float4 *positions, float *velocityPtr,
-                                      float time, float maxPosition);
+                                      float *pressurePtr, float time,
+                                      float maxPosition);
 
 // integrate ODE of a given particle
 __device__ void stepIntegration(float4 *position, float4 *velocity,
@@ -42,10 +44,10 @@ __device__ void applyPeriodicBoundaryCondition(float4 *position,
                                                float maxPosition);
 
 // compute the body-body interactions
-__device__ void computeBodyBodyInteractions(float3 *acceleration,
-                                            float4 const *position,
-                                            float4 const *positions,
-                                            size_t nBodies, float maxPosition);
+__device__ float computeBodyBodyInteractions(float3 *acceleration,
+                                             float4 const *position,
+                                             float4 const *positions,
+                                             size_t nBodies, float maxPosition);
 
 // compute the gravitation
 __device__ void addBodyBodyGravitation(float3 *acceleration,
@@ -54,10 +56,10 @@ __device__ void addBodyBodyGravitation(float3 *acceleration,
                                        float maxPosition);
 
 // crazy gas close range interactions
-__device__ void addVanDerWaalsForces(float3 *acceleration,
-                                     float4 const *position,
-                                     float4 const *otherPosition,
-                                     float maxPosition);
+__device__ float addVanDerWaalsForces(float3 *acceleration,
+                                      float4 const *position,
+                                      float4 const *otherPosition,
+                                      float maxPosition);
 
 // euler integration
 __device__ void stepIntegrationLeapfrog(float4 *position, float4 *velocity,
@@ -145,7 +147,8 @@ void printCUDAVersion() {
 
 void launchCudaKernel(cudaGraphicsRes_pt &positionCudaVBO,
                       float *velocityCudaPtr, float *temperatureCudaPtr,
-                      size_t nParticles, float maxPosition) {
+                      float *pressureCudaPtr, size_t nParticles,
+                      float maxPosition) {
   static float timeOld = clock() / static_cast<float>(CLOCKS_PER_SEC);
   size_t nBytes;
   float4 *positions;
@@ -159,22 +162,42 @@ void launchCudaKernel(cudaGraphicsRes_pt &positionCudaVBO,
   float time = clock() / static_cast<float>(CLOCKS_PER_SEC);
   // setPositionsKernel<<<gridSize, nParticles / nBlocks>>>(positions, time,
   // maxPosition);
-  updatePositionsKernel<<<gridSize, blockSize>>>(positions, velocityCudaPtr,
-                                                 time - timeOld, maxPosition);
+  float reset[gridSize]{0.0f};
+  cudaMemcpy(pressureCudaPtr, reset, sizeof(float) * gridSize,
+             cudaMemcpyHostToDevice);
+  updatePositionsKernel<<<gridSize, blockSize>>>(
+      positions, velocityCudaPtr, pressureCudaPtr, time - timeOld, maxPosition);
 
   float temperatures[gridSize];
+  float phis[gridSize];
   computeTemperature<<<gridSize, blockSize>>>(positions, velocityCudaPtr,
                                               temperatureCudaPtr);
   checkCUDAError("computeTemperature()");
+
   cudaMemcpy(temperatures, temperatureCudaPtr, sizeof(float) * gridSize,
              cudaMemcpyDeviceToHost);
   checkCUDAError("computeTemperature() memcpy");
+
+  cudaMemcpy(phis, pressureCudaPtr, sizeof(float) * gridSize,
+             cudaMemcpyDeviceToHost);
+  checkCUDAError("phis memcpy");
+
   float temperature = 0.0f;
+
   for (int i = 0; i < gridSize; i++) {
     temperature += temperatures[i];
   }
   temperature /= (3.0f * KB * nParticles);
-  printf("%f, %f\n", temperature, time);
+
+  float phi = 0.0f;
+  for (int i = 0; i < gridSize; i++) {
+    phi += phis[i];
+  }
+
+  float pressure = (nParticles * KB * temperature + phi / 3.0f) /
+                   (maxPosition * maxPosition * maxPosition);
+
+  printf("%f, %f, %f\n", temperature, pressure, time);
 
   checkCUDAError("launchCudaKernel()");
   timeOld = time;
@@ -203,7 +226,8 @@ __global__ void setPositionsKernel(float4 *positions, float time,
 
 // kernel for N-body dynamics
 __global__ void updatePositionsKernel(float4 *positions, float *velocityPtr,
-                                      float timeDiff, float maxPosition) {
+                                      float *pressurePtr, float timeDiff,
+                                      float maxPosition) {
 
   __shared__ float4 sharedPositions[blockSize];
 
@@ -219,8 +243,10 @@ __global__ void updatePositionsKernel(float4 *positions, float *velocityPtr,
 
     __syncthreads();
 
-    computeBodyBodyInteractions(&acceleration, &currentPosition,
-                                sharedPositions, blockSize, maxPosition);
+    atomicAdd(&pressurePtr[blockIdx.x],
+              computeBodyBodyInteractions(&acceleration, &currentPosition,
+                                          sharedPositions, blockSize,
+                                          maxPosition));
 
     __syncthreads();
   }
@@ -290,16 +316,23 @@ __device__ void applyPeriodicBoundaryCondition(float4 *position,
   position->z = fmodf(position->z + maxPosition, maxPosition);
 }
 
-__device__ void computeBodyBodyInteractions(float3 *acceleration,
-                                            float4 const *position,
-                                            float4 const *positions,
-                                            size_t nBodies, float maxPosition) {
+__device__ float computeBodyBodyInteractions(float3 *acceleration,
+                                             float4 const *position,
+                                             float4 const *positions,
+                                             size_t nBodies,
+                                             float maxPosition) {
+  float sum = 0;
   for (int i = 0; i < nBodies; i++) {
     float4 otherPosition = positions[i];
+
     // addBodyBodyGravitation(acceleration, position, &otherPosition,
     // maxPosition);
-    addVanDerWaalsForces(acceleration, position, &otherPosition, maxPosition);
+
+    sum += addVanDerWaalsForces(acceleration, position, &otherPosition,
+                                maxPosition);
   }
+
+  return sum;
 }
 
 __device__ void addBodyBodyGravitation(float3 *acceleration,
@@ -333,10 +366,10 @@ __device__ void addBodyBodyGravitation(float3 *acceleration,
   acceleration->z += factor * direction.z;
 }
 
-__device__ void addVanDerWaalsForces(float3 *acceleration,
-                                     float4 const *position,
-                                     float4 const *otherPosition,
-                                     float maxPosition) {
+__device__ float addVanDerWaalsForces(float3 *acceleration,
+                                      float4 const *position,
+                                      float4 const *otherPosition,
+                                      float maxPosition) {
 
   float3 direction = {
       otherPosition->x - position->x,
@@ -366,4 +399,7 @@ __device__ void addVanDerWaalsForces(float3 *acceleration,
   acceleration->x += factor * direction.x;
   acceleration->y += factor * direction.y;
   acceleration->z += factor * direction.z;
+
+  return direction.x * acceleration->x + direction.y * acceleration->y +
+         direction.z * acceleration->z;
 }

@@ -32,6 +32,7 @@ void printCUDAVersion();
 // launch N-body dynamics kernel
 void launchCudaKernel(cudaGraphicsRes_pt &positionCudaVBO,
                       float_pt velocityCudaPtr, float_pt temperatureCudaPtr,
-                      size_t nParticles, float maxPosition);
+                      float_pt pressureCudaPtr, size_t nParticles,
+                      float maxPosition);
 
 #endif /* KERNEL_H_ */
